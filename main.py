@@ -1,7 +1,8 @@
-# PeakTubeBot – نسخه نهایی بدون استیکر + بدون زیرنویس زباله + بدون هیچ خطایی
+# PeakTubeBot – نسخه سازگار با Render
 import os
 import asyncio
 import logging
+import signal
 from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -10,11 +11,17 @@ from telegram.ext import (
 )
 import yt_dlp
 
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-TOKEN = "8462120028:AAGLjkcu3n0jj0Gi8BIfYwmPwplxWKqGN6o"
+# تنظیمات اولیه
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# خواندن توکن از متغیر محیطی
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    logger.error("BOT_TOKEN environment variable not set!")
+    exit(1)
+
+# ایجاد پوشه دانلود
 if not os.path.exists("downloads"):
     os.makedirs("downloads")
 
@@ -127,7 +134,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             td = timedelta(seconds=duration)
             duration_str = str(td)[2:] if td < timedelta(hours=1) else str(td)
 
-        # فیلتر زیرنویس‌های واقعی – همه زباله‌ها حذف شدن
+        # فیلتر زیرنویس‌های واقعی
         valid_subs = {}
         for code in info.get('subtitles', {}):
             valid_subs[code] = "manual"
@@ -156,7 +163,8 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error checking link: {e}")
         await msg.edit_text("خطا در بررسی لینک" if lang == "fa" else "Error checking link")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,6 +234,7 @@ async def download_video(url, user_id, msg, message, subtitle_lang=None, lang="f
         os.remove(file_path)
 
     except Exception as e:
+        logger.error(f"Error downloading video: {e}")
         await msg.edit_text("خطایی رخ داد!" if lang == "fa" else "An error occurred!")
 
 async def download_audio(url, user_id, msg, message, lang="fa"):
@@ -250,10 +259,13 @@ async def download_audio(url, user_id, msg, message, lang="fa"):
 
         await msg.delete()
         os.remove(file_path)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error downloading audio: {e}")
         await msg.edit_text("خطایی رخ داد!" if lang == "fa" else "An error occurred!")
 
 def main():
+    logger.info("Starting PeakTubeBot...")
+    
     app = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -269,8 +281,26 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"https?://(www\.)?(youtube\.com|youtu\.be|y2u\.be)"), handle_link))
     app.add_handler(CallbackQueryHandler(button_callback, pattern="^(video|audio|hardsub_|cancel)$"))
 
-    print("PeakTubeBot نهایی بدون استیکر و بدون هیچ خطایی فعال شد!")
-    app.run_polling(drop_pending_updates=True)
+    # مدیریت سیگنال‌های خاتمه
+    loop = asyncio.get_event_loop()
+    stop_event = asyncio.Event()
+
+    async def shutdown():
+        logger.info("Shutting down bot...")
+        await app.stop()
+        await app.shutdown()
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+
+    logger.info("PeakTubeBot is running...")
+    
+    try:
+        app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.error(f"Bot crashed: {e}")
+        raise
 
 if __name__ == "__main__":
     main()

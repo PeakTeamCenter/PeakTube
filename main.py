@@ -266,6 +266,11 @@ async def download_audio(url, user_id, msg, message, lang="fa"):
 def main():
     logger.info("Starting PeakTubeBot...")
     
+    # حذف توکن اگر خالی است
+    if not TOKEN or TOKEN == "YOUR_BOT_TOKEN_HERE":
+        logger.error("BOT_TOKEN is not set!")
+        exit(1)
+    
     app = Application.builder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
@@ -304,3 +309,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
